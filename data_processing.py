@@ -4,14 +4,15 @@ import os
 import matplotlib.pyplot as plt
 
 
-def load_data():
-    Xtr = np.array(pd.read_csv('../Xtr.csv',header=None,sep=',',usecols=range(3072)))
-    Xte = np.array(pd.read_csv('../Xte.csv',header=None,sep=',',usecols=range(3072)))
-    Ytr = np.array(pd.read_csv('../Ytr.csv',sep=',',usecols=[1])).squeeze()
+def load_data(data_dir="../"):
+    Xtr = np.array(pd.read_csv(os.path.join(data_dir, 'Xtr.csv'), header=None,sep=',', usecols=range(3072)))
+    Xte = np.array(pd.read_csv(os.path.join(data_dir, 'Xte.csv'), header=None,sep=',', usecols=range(3072)))
+    Ytr = np.array(pd.read_csv(os.path.join(data_dir, 'Ytr.csv'), sep=',', usecols=[1])).squeeze()
 
-    print(Xtr.shape)
-    print(Xte.shape)
-    print(Ytr.shape)
+    print("Data loaded successfully")
+    print("Xtr.shape:", Xtr.shape)
+    print("Xte.shape:", Xte.shape)
+    print("Ytr.shape:", Ytr.shape)
 
     return Xtr, Xte, Ytr
 
