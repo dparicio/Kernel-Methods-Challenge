@@ -91,7 +91,7 @@ def show_images_per_label(X, Y, n_per_label=9):
     """)
 
 
-def create_submission(predictions, filename="submission.csv"):
+def format_submission(predictions, filename="submission.csv"):
     """
     Converts a vector of integer labels into a Kaggle submission file.
     

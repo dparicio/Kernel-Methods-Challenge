@@ -27,8 +27,8 @@ class PolynomialKernel(Kernel):
 
 
 class RBFKernel(Kernel):
-    def __init__(self, sigma):
-        self.sigma = float(sigma)
+    def __init__(self, gamma):
+        self.gamma = float(gamma)
 
     def _kernel(self, X1, X2):
         # Compute squared distance by developing ||x-y||^2 
@@ -38,5 +38,5 @@ class RBFKernel(Kernel):
         dists_sq = np.maximum(dists_sq, 0)
 
         # Compute RBF kernel
-        K = np.exp(-dists_sq / (2 * self.sigma**2))
+        K = np.exp(-dists_sq * self.gamma)
         return K
