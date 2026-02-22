@@ -130,4 +130,67 @@ class LogisticRegression:
         Y_pred_one_hot = K_test @ self.alpha
         Y_pred = np.argmax(Y_pred_one_hot, axis=1)
         return Y_pred
+
+class CSVM:
+    def __init__(self, kernel, C, eta=1e-4, max_iter=2000, tol=1e-3):
+        self.kernel = kernel
+        self.C = C
+        self.eta = eta
+        self.max_iter = max_iter
+        self.tol = tol
+
+    def fit(self, X, Y, num_classes=None):
+        # Save training data
+        self.X_train = X
+
+        # Create one-hot encoding of labels in {-1, 1}
+        if num_classes is None:
+            num_classes = len(np.unique(Y))
+        Y_labels = 2 * one_hot_encode(Y, num_classes) - 1  # shape (n_samples, num_classes)
+        self.Y_labels = Y_labels
+
+        n_samples = X.shape[0]
+        K = self.kernel(X)                          # Kernel matrix
+        K = (K + K.T) / 2.0                         # Ensure symmetry
+
+        alpha = np.zeros((n_samples, num_classes), dtype=np.float64)
+
+        for _ in range(self.max_iter):
+            # Gradient step
+            grad = 2 * (Y_labels - K @ alpha)
+            alpha += self.eta * grad
+
+            # Box projection via beta
+            beta = np.clip(alpha * Y_labels, 0, self.C)
+            alpha = Y_labels * beta
+
+            # Equality projection: sum_i alpha_i * y_i = 0
+            alpha -= Y_labels * (np.sum(Y_labels * alpha, axis=0) / np.sum(Y_labels**2, axis=0))
+
+            # Convergence check
+            if np.linalg.norm(grad) <= self.tol:
+                break
+
+        self.alpha = alpha
+
+        # Extract bias b for each class
+        self.b = np.zeros(num_classes)
+        for c in range(num_classes):
+            beta_c = self.alpha[:,c] * Y_labels[:,c]
+            sv_mask = (beta_c > 1e-12) & (beta_c < self.C - 1e-12)
+            if np.any(sv_mask):
+                self.b[c] = np.mean(Y_labels[sv_mask, c] - (K[sv_mask,:] @ (self.alpha[:,c] * Y_labels[:,c])))
+            else:
+                self.b[c] = 0.0
+
+    def predict(self, X_test):
+        # Kernel between test and training data
+        K_test = self.kernel(X_test, self.X_train)  # shape (n_test, n_train)
+
+        # Compute decision function for each class
+        scores = K_test @ self.alpha + self.b  # shape (n_test, num_classes)
+
+        # Predict class with highest score
+        Y_pred = np.argmax(scores, axis=1)
+        return Y_pred
         
