@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 def load_data(data_dir="../"):
@@ -91,7 +92,7 @@ def show_images_per_label(X, Y, n_per_label=9):
     """)
 
 
-def format_submission(predictions, filename="/kaggle/working/submission.csv"):
+def format_submission(predictions, filename="submission.csv"):
     predictions = np.array(predictions, dtype=int)
 
     submission_df = pd.DataFrame({
@@ -99,6 +100,10 @@ def format_submission(predictions, filename="/kaggle/working/submission.csv"):
         "Prediction": predictions
     })
 
-    submission_df.to_csv(filename, index=False)
+    output_path = Path(filename)
+    if output_path.parent != Path("."):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    submission_df.to_csv(output_path, index=False)
 
     return submission_df

@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from scipy.optimize import minimize
 from utils import one_hot_encode
 
@@ -132,33 +133,34 @@ class LogisticRegression:
         return Y_pred
 
 class SVM:
-    def __init__(self, kernel, C=4, max_iter=200, tol=1e-5, eps=1e-8):
+    def __init__(self, kernel, C=4, max_iter=200, tol=1e-5, eps=1e-8, random_state=None):
         self.C = C
 
         self.kernel = kernel 
 
-        self.max_iter=max_iter
+        self.max_iter = max_iter
         self.tol = tol
         self.eps = eps
+        self.rng = np.random.default_rng(random_state)
     
     def predict(self, K_test, Y=None, alpha=None, b=None):
         if alpha is not None:
-            self.alphas=alpha
+            self.alphas = alpha
         if b is not None:
-            self.b=b
+            self.b = b
         if Y is not None:
-            self.Y_train=Y
-        result = K_test @ (self.alphas * self.Y_train)  + self.b
+            self.Y_train = Y
+
+        result = K_test @ (self.alphas * self.Y_train) + self.b
         Y_pred = np.argmax(result, axis=1)
 
         return Y_pred
 
-    def get_error(self, K, i, k):
-        result = K[i,:] @ (self.alphas[:,k] * self.Y_train[:,k])  + self.b[k]
-        return result - self.Y_train[i, k]
+    def get_error(self, i, k):
+        return self.error[i, k]
 
     def take_step(self, i1, i2, i):
-        if (i1 == i2):
+        if i1 == i2:
             return 0
 
         y1 = self.Y_train[i1, i]
@@ -167,10 +169,10 @@ class SVM:
         alpha1 = self.alphas[i1, i]
         alpha2 = self.alphas[i2, i]
 
-        b = self.b
+        b_old = self.b[i]
 
-        E1 = self.get_error(self.kernel, i1, i)
-        E2 = self.get_error(self.kernel, i2, i)
+        E1 = self.get_error(i1, i)
+        E2 = self.get_error(i2, i)
 
         s = y1 * y2
 
@@ -184,9 +186,9 @@ class SVM:
         if L == H:
             return 0
 
-        k11 = self.kernel[i1, i1]
-        k12 = self.kernel[i1, i2]
-        k22 = self.kernel[i2, i2]
+        k11 = self.K[i1, i1]
+        k12 = self.K[i1, i2]
+        k22 = self.K[i2, i2]
 
         eta = k11 + k22 - 2 * k12
 
@@ -214,32 +216,26 @@ class SVM:
         elif alpha1_new > (self.C - self.eps):
             alpha1_new = self.C
 
-        # Update threshold
-        b1 = b - E1 - y1 * (alpha1_new - alpha1) * k11 - y2 * (alpha2_new - alpha2) * k12
-        b2 = b - E2 - y1 * (alpha1_new - alpha1) * k12 - y2 * (alpha2_new - alpha2) * k22
-        if 0 < alpha1_new < self.C:
-            self.b = b1
-        elif 0 < alpha2_new < self.C:
-            self.b = b2
-        else:
-            self.b = 0.5 * (b1 + b2)
+        delta1 = alpha1_new - alpha1
+        delta2 = alpha2_new - alpha2
 
+        # Update threshold
+        b1 = b_old - E1 - y1 * delta1 * k11 - y2 * delta2 * k12
+        b2 = b_old - E2 - y1 * delta1 * k12 - y2 * delta2 * k22
+        if 0 < alpha1_new < self.C:
+            b_new = b1
+        elif 0 < alpha2_new < self.C:
+            b_new = b2
+        else:
+            b_new = 0.5 * (b1 + b2)
 
         self.alphas[i1, i] = alpha1_new
         self.alphas[i2, i] = alpha2_new
+        self.b[i] = b_new
 
-        # Error cache update
-        ## if alpha1 & alpha2 are not at bounds, the error will be 0
-        self.error[i1, i] = 0
-        self.error[i2, i] = 0
-
-        i_list = [idx for idx, alpha in enumerate(self.alphas[:,i]) \
-                      if 0 < alpha and alpha < self.C]
-        for k in i_list:
-            self.error[k, i] += \
-                  y1 * (alpha1_new - alpha1) * self.kernel[i1, k] \
-                + y2 * (alpha2_new - alpha2) * self.kernel[i2, k] \
-                + (self.b[i] - b)
+        # Vectorized update of the full error cache for class i.
+        db = b_new - b_old
+        self.error[:, i] += y1 * delta1 * self.K[:, i1] + y2 * delta2 * self.K[:, i2] + db
 
         return 1
 
@@ -247,54 +243,90 @@ class SVM:
     def examine_example(self, i2, i):
         y2 = self.Y_train[i2, i]
         alpha2 = self.alphas[i2, i]
-        E2 = self.get_error(self.kernel, i2, i)
+        E2 = self.get_error(i2, i)
         r2 = E2 * y2
 
         if ((r2 < -self.tol and alpha2 < self.C) or (r2 > self.tol and alpha2 > 0)):
-            if len(self.alphas[(0 < self.alphas[:,i]) & (self.alphas[:,i] < self.C)]) > 1:
+            alpha_col = self.alphas[:, i]
+            non_bound = np.flatnonzero((alpha_col > self.eps) & (alpha_col < self.C - self.eps))
+
+            if non_bound.size > 1:
                 if E2 > 0:
-                    i1 = np.argmin(self.error[:,i])
+                    i1 = int(np.argmin(self.error[:, i]))
                 else:
-                    i1 = np.argmax(self.error[:,i])
+                    i1 = int(np.argmax(self.error[:, i]))
 
                 if self.take_step(i1, i2, i):
                     return 1
 
-            # loop over all non-zero and non-C alpha, starting at a random point
-            i1_list = [idx for idx, alpha in enumerate(self.alphas) \
-                           if 0 < alpha and alpha < self.C]
-            i1_list = np.roll(i1_list, np.random.choice(np.arange(self.n)))
-            for i1 in i1_list:
-                if self.take_step(i1, i2):
-                    return 1
+            # Loop over all non-bound alpha, starting at a random point.
+            if non_bound.size > 0:
+                start = int(self.rng.integers(non_bound.size))
+                for offset in range(non_bound.size):
+                    i1 = int(non_bound[(start + offset) % non_bound.size])
+                    if self.take_step(i1, i2, i):
+                        return 1
 
-            # loop over all possible i1, starting at a random point
-            i1_list = np.roll(np.arange(self.n), np.random.choice(np.arange(self.n)))
-            for i1 in i1_list:
-                if self.take_step(i1, i2):
+            # Loop over all possible i1, starting at a random point.
+            start = int(self.rng.integers(self.n))
+            for offset in range(self.n):
+                i1 = (start + offset) % self.n
+                if self.take_step(i1, i2, i):
                     return 1
 
         return 0
     
-    def fit(self, Y, alpha=None, b=None):
-        self.Y_train = Y
-        self.n = self.kernel.shape[0]
+    def fit(
+        self,
+        Y,
+        alpha=None,
+        b=None,
+        target_changed=0,
+        verbose=False,
+        progress_every=5,
+        callback=None,
+    ):
+        self.Y_train = np.asarray(Y, dtype=np.float64)
+        self.K = np.asarray(self.kernel, dtype=np.float64)
+        self.n = self.K.shape[0]
         k = self.Y_train.shape[1]
+        total_pass_upper = k * self.max_iter
+        global_pass = 0
+        fit_start = time.perf_counter()
+        self.fit_history = []
+
         if alpha is not None:
-            self.alphas = alpha
+            self.alphas = np.asarray(alpha, dtype=np.float64)
         else:
-            self.alphas = np.zeros((self.n,k))
+            self.alphas = np.zeros((self.n, k), dtype=np.float64)
+
         if b is not None:
-            self.b = b
+            self.b = np.asarray(b, dtype=np.float64)
         else:
-            self.b = np.zeros(k)
-        self.error = np.zeros((self.n,k))
+            self.b = np.zeros(k, dtype=np.float64)
+
+        # E_i = f(x_i) - y_i, with f(x) = sum_j alpha_j y_j K(x_j, x) + b
+        self.error = self.K @ (self.alphas * self.Y_train) + self.b - self.Y_train
+
+        if verbose:
+            print(
+                f"[SVM.fit] start n={self.n} classes={k} "
+                f"max_iter={self.max_iter} upper_passes={total_pass_upper}"
+            )
+
         for i in range(k):
             it = 0
             numChanged = 0
             examineAll = True
-            while numChanged > 0 or examineAll:
+            class_start = time.perf_counter()
+            class_done = False
+
+            if verbose:
+                print(f"[SVM.fit] class {i + 1}/{k} started")
+
+            while numChanged > target_changed or examineAll:
                 if it >= self.max_iter:
+                    class_done = True
                     break
 
                 numChanged = 0
@@ -302,13 +334,81 @@ class SVM:
                     for i2 in range(self.n):
                         numChanged += self.examine_example(i2, i)
                 else:
-                    i2_list = [idx for idx, alpha in enumerate(self.alphas[:,i]) if 0 < alpha and alpha < self.C]
-                    for i2 in i2_list:
-                        numChanged += self.examine_example(i2, i)
+                    non_bound = np.flatnonzero(
+                        (self.alphas[:, i] > self.eps) & (self.alphas[:, i] < self.C - self.eps)
+                    )
+                    for i2 in non_bound:
+                        numChanged += self.examine_example(int(i2), i)
 
                 if examineAll:
                     examineAll = False
-                elif numChanged == 0:
+                elif numChanged <= target_changed:
                     examineAll = True
 
                 it += 1
+                global_pass += 1
+
+                should_log = (
+                    verbose
+                    and (
+                        it == 1
+                        or it % max(1, progress_every) == 0
+                        or numChanged <= target_changed
+                        or it >= self.max_iter
+                    )
+                )
+                if should_log:
+                    total_elapsed = time.perf_counter() - fit_start
+                    class_elapsed = time.perf_counter() - class_start
+                    remaining_upper = max(total_pass_upper - global_pass, 0)
+                    eta_upper = (total_elapsed / max(global_pass, 1)) * remaining_upper
+                    non_bound = int(
+                        np.count_nonzero(
+                            (self.alphas[:, i] > self.eps) & (self.alphas[:, i] < self.C - self.eps)
+                        )
+                    )
+                    mode = "all" if examineAll else "non-bound"
+                    print(
+                        f"[SVM.fit] class {i + 1}/{k} pass {it}/{self.max_iter} "
+                        f"mode={mode} changed={numChanged} non_bound={non_bound} "
+                        f"elapsed={class_elapsed:.1f}s total={total_elapsed:.1f}s eta<={eta_upper:.1f}s"
+                    )
+
+                if callback is not None:
+                    callback(
+                        {
+                            "class_idx": i,
+                            "num_classes": k,
+                            "pass_idx": it,
+                            "max_iter": self.max_iter,
+                            "num_changed": int(numChanged),
+                            "examine_all": bool(examineAll),
+                            "global_pass": global_pass,
+                            "upper_passes": total_pass_upper,
+                            "elapsed_s": float(time.perf_counter() - fit_start),
+                        }
+                    )
+
+            class_elapsed = time.perf_counter() - class_start
+            non_zero_alpha = int(np.count_nonzero(self.alphas[:, i] > self.eps))
+            status = "max_iter" if class_done and it >= self.max_iter else "converged"
+            summary = {
+                "class_idx": i,
+                "passes": it,
+                "status": status,
+                "non_zero_alpha": non_zero_alpha,
+                "elapsed_s": float(class_elapsed),
+            }
+            self.fit_history.append(summary)
+
+            if verbose:
+                print(
+                    f"[SVM.fit] class {i + 1}/{k} done status={status} "
+                    f"passes={it} non_zero_alpha={non_zero_alpha} elapsed={class_elapsed:.1f}s"
+                )
+
+        if verbose:
+            total_elapsed = time.perf_counter() - fit_start
+            print(f"[SVM.fit] done total_elapsed={total_elapsed:.1f}s")
+
+        return self.alphas, self.b
